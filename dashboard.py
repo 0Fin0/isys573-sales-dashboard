@@ -142,6 +142,115 @@ def build_top_products(df: pd.DataFrame, n: int = 10) -> go.Figure:
     return fig
 
 
+def build_sales_risk_insights(df: pd.DataFrame) -> list[dict[str, str]]:
+    """Build transparent, data-grounded sales risk and opportunity insights."""
+    if df.empty or "revenue" not in df.columns:
+        return [{
+            "title": "No insight data available",
+            "priority": "Low",
+            "evidence": "The selected period has no sales records to analyze.",
+            "action": "Review the filter selection or source data before acting.",
+        }]
+
+    total_revenue = float(df["revenue"].sum())
+    if total_revenue <= 0:
+        return [{
+            "title": "Revenue data requires review",
+            "priority": "Low",
+            "evidence": "The selected period has no positive revenue.",
+            "action": "Validate the source data before using dashboard insights.",
+        }]
+
+    insights: list[dict[str, str]] = []
+
+    if "region" in df.columns:
+        region_revenue = df.groupby("region")["revenue"].sum().sort_values(
+            ascending=False
+        )
+        top_region = str(region_revenue.index[0])
+        top_region_revenue = float(region_revenue.iloc[0])
+        top_region_share = top_region_revenue / total_revenue
+        priority = "High" if top_region_share >= 0.35 else "Medium"
+        insights.append({
+            "title": f"Revenue concentration in {top_region}",
+            "priority": priority,
+            "evidence": (
+                f"{top_region} contributes ${top_region_revenue:,.0f}, "
+                f"or {top_region_share:.1%} of filtered revenue."
+            ),
+            "action": (
+                f"Protect {top_region} performance while reviewing whether "
+                "other regions can reduce dependency."
+            ),
+        })
+
+        if len(region_revenue) > 1:
+            low_region = str(region_revenue.index[-1])
+            low_region_revenue = float(region_revenue.iloc[-1])
+            average_region_revenue = float(region_revenue.mean())
+            gap_to_average = average_region_revenue - low_region_revenue
+            priority = (
+                "High"
+                if gap_to_average > average_region_revenue * 0.2
+                else "Medium"
+            )
+            insights.append({
+                "title": f"Underperformance watch: {low_region}",
+                "priority": priority,
+                "evidence": (
+                    f"{low_region} generated ${low_region_revenue:,.0f}, "
+                    f"${gap_to_average:,.0f} below the regional average."
+                ),
+                "action": (
+                    f"Review product mix, channel coverage, and rep support in "
+                    f"{low_region}."
+                ),
+            })
+
+    if "category" in df.columns:
+        category_revenue = df.groupby("category")["revenue"].sum().sort_values(
+            ascending=False
+        )
+        top_category = str(category_revenue.index[0])
+        top_category_revenue = float(category_revenue.iloc[0])
+        top_category_share = top_category_revenue / total_revenue
+        insights.append({
+            "title": f"Growth opportunity: {top_category}",
+            "priority": "Medium",
+            "evidence": (
+                f"{top_category} is the top category at "
+                f"${top_category_revenue:,.0f}, or {top_category_share:.1%} "
+                "of filtered revenue."
+            ),
+            "action": (
+                f"Evaluate whether promotions, inventory, or sales enablement "
+                f"can responsibly expand {top_category} momentum."
+            ),
+        })
+
+    if "channel" in df.columns:
+        channel_revenue = df.groupby("channel")["revenue"].sum().sort_values(
+            ascending=False
+        )
+        top_channel = str(channel_revenue.index[0])
+        top_channel_share = float(channel_revenue.iloc[0]) / total_revenue
+        if top_channel_share >= 0.6:
+            insights.append({
+                "title": f"Channel dependency on {top_channel}",
+                "priority": "Medium",
+                "evidence": (
+                    f"{top_channel} represents {top_channel_share:.1%} of "
+                    "filtered revenue."
+                ),
+                "action": (
+                    "Check whether the lower-share channel needs support or "
+                    "whether the current channel mix is intentional."
+                ),
+            })
+
+    return insights[:3]
+
+
 def kpi_card_html(label: str, value: str, color: str = "#2196F3") -> str:
     """Render a single KPI card as HTML."""
     return f"""
@@ -177,6 +286,7 @@ def build_html(df: pd.DataFrame) -> str:
                 "total_revenue": "$0",
                 "total_orders": "0",
                 "avg_order": "$0",
+                "insights": build_sales_risk_insights(subset),
                 "top_region": "—",
             }
             continue
@@ -197,6 +307,7 @@ def build_html(df: pd.DataFrame) -> str:
             "total_revenue": f"${total_rev:,.0f}",
             "total_orders":  f"{total_orders:,}",
             "avg_order":     f"${avg_order:,.0f}",
+            "insights":      build_sales_risk_insights(subset),
             "top_region":    top_region,
         }
 
@@ -227,12 +338,38 @@ def build_html(df: pd.DataFrame) -> str:
             font-size:14px;background:#fff;cursor:pointer;color:#1a1a2e;}}
     select:focus{{outline:none;border-color:#2196F3;}}
     .kpis{{display:flex;gap:16px;flex-wrap:wrap;padding:24px 32px 8px;}}
+    .insights-panel{{margin:16px 32px 0;background:#fff;border-radius:10px;
+                    box-shadow:0 2px 8px rgba(0,0,0,.06);padding:22px 24px;
+                    border-left:4px solid #02C39A;}}
+    .insights-heading{{display:flex;align-items:flex-start;justify-content:space-between;
+                      gap:16px;margin-bottom:14px;}}
+    .insights-heading h2{{font-size:18px;margin:0;color:#1a1a2e;}}
+    .insights-note{{font-size:12px;color:#607080;max-width:520px;line-height:1.4;}}
+    .insights-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}}
+    .insight-card{{border:1px solid #e0e6ed;border-radius:8px;padding:14px;
+                  background:#fbfcfe;min-height:164px;}}
+    .insight-title-row{{display:flex;align-items:flex-start;justify-content:space-between;
+                       gap:10px;margin-bottom:8px;}}
+    .insight-title{{font-weight:700;font-size:14px;color:#1a1a2e;line-height:1.25;}}
+    .priority{{font-size:11px;font-weight:700;text-transform:uppercase;
+              border-radius:999px;padding:4px 8px;white-space:nowrap;}}
+    .priority.high{{background:#ffebee;color:#b71c1c;}}
+    .priority.medium{{background:#fff3e0;color:#a45a00;}}
+    .priority.low{{background:#e8f5e9;color:#1b5e20;}}
+    .insight-label{{font-size:11px;font-weight:700;color:#607080;
+                   text-transform:uppercase;margin-top:10px;margin-bottom:3px;}}
+    .insight-text{{font-size:13px;line-height:1.45;color:#2f3a45;}}
     .charts-grid{{display:grid;
                   grid-template-columns:1fr 1fr;
                   gap:20px;padding:16px 32px 32px;}}
     .chart-card{{background:#fff;border-radius:10px;
                  padding:8px;box-shadow:0 2px 8px rgba(0,0,0,.06);}}
-    @media(max-width:800px){{.charts-grid{{grid-template-columns:1fr;}}}}
+    @media(max-width:1000px){{.insights-grid{{grid-template-columns:1fr;}}}}
+    @media(max-width:800px){{.charts-grid{{grid-template-columns:1fr;}}
+                            .insights-heading{{flex-direction:column;}}
+                            .insights-panel{{margin:16px 18px 0;}}
+                            .kpis{{padding-left:18px;padding-right:18px;}}
+                            .charts-grid{{padding-left:18px;padding-right:18px;}}}}
     footer{{text-align:center;padding:16px;font-size:12px;color:#999;
             border-top:1px solid #e0e6ed;background:#fff;}}
   </style>
@@ -259,6 +396,17 @@ def build_html(df: pd.DataFrame) -> str:
 
 <div class="kpis" id="kpiRow"></div>
 
+<section class="insights-panel" aria-labelledby="insightsTitle">
+  <div class="insights-heading">
+    <h2 id="insightsTitle">AI Sales Risk Insights</h2>
+    <p class="insights-note">
+      Generated from the selected dashboard data using transparent business
+      rules. Human review is required before action.
+    </p>
+  </div>
+  <div class="insights-grid" id="insightsGrid"></div>
+</section>
+
 <div class="charts-grid">
   <div class="chart-card"><div id="chartRegion"  style="height:340px;"></div></div>
   <div class="chart-card"><div id="chartMonthly" style="height:340px;"></div></div>
@@ -279,6 +427,16 @@ const KPI_COLORS = ["#2196F3","#4CAF50","#FF9800","#9C27B0"];
 const KPI_LABELS = ["Total Revenue","Transactions","Avg Transaction","Top Region"];
 const KPI_KEYS   = ["total_revenue","total_orders","avg_order","top_region"];
 
+function escapeHtml(value) {{
+  return String(value).replace(/[&<>"']/g, char => ({{
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\\"": "&quot;",
+    "'": "&#39;"
+  }}[char]));
+}}
+
 function applyFilter(quarter) {{
   const d = DATA[quarter];
 
@@ -292,6 +450,21 @@ function applyFilter(quarter) {{
                   text-transform:uppercase;letter-spacing:.4px;">${{KPI_LABELS[i]}}</div>
       <div style="font-size:26px;font-weight:700;color:#1a1a2e;margin-top:5px;">${{d[k]}}</div>
     </div>`).join("");
+
+  const insightsGrid = document.getElementById("insightsGrid");
+  insightsGrid.innerHTML = d.insights.map(item => `
+    <article class="insight-card">
+      <div class="insight-title-row">
+        <div class="insight-title">${{escapeHtml(item.title)}}</div>
+        <span class="priority ${{escapeHtml(item.priority).toLowerCase()}}">
+          ${{escapeHtml(item.priority)}}
+        </span>
+      </div>
+      <div class="insight-label">Evidence</div>
+      <div class="insight-text">${{escapeHtml(item.evidence)}}</div>
+      <div class="insight-label">Action</div>
+      <div class="insight-text">${{escapeHtml(item.action)}}</div>
+    </article>`).join("");
 
   // Charts
   Plotly.react("chartRegion",      JSON.parse(d.region).data,      JSON.parse(d.region).layout,      {{responsive:true}});

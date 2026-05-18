@@ -11,7 +11,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from dashboard import load_data, build_region_bar, build_monthly_line, \
-                      build_category_pie, build_top_products
+                      build_category_pie, build_top_products, \
+                      build_sales_risk_insights
 
 DATA_PATH = Path(__file__).parent.parent / "data" / "sales.csv"
 
@@ -58,8 +59,8 @@ class TestRegionChart:
 
     def test_has_four_bars(self, df):
         fig = build_region_bar(df)
-        # px.bar with color creates one trace per region
-        assert len(fig.data) == 4
+        # go.Bar renders all regions in one trace.
+        assert len(fig.data[0].y) == 4
 
     def test_filtered_by_quarter(self, df):
         q1 = df[df["quarter"] == "Q1"]
@@ -109,3 +110,32 @@ class TestTopProducts:
         fig = build_top_products(df)
         revenues = list(fig.data[0].x)
         assert revenues == sorted(revenues)
+
+
+class TestSalesRiskInsights:
+    def test_returns_three_insights_for_full_dataset(self, df):
+        insights = build_sales_risk_insights(df)
+        assert len(insights) == 3
+
+    def test_each_insight_has_required_fields(self, df):
+        insights = build_sales_risk_insights(df)
+        required = {"title", "priority", "evidence", "action"}
+        for insight in insights:
+            assert required.issubset(insight.keys())
+            assert insight["priority"] in {"High", "Medium", "Low"}
+            assert insight["evidence"]
+            assert insight["action"]
+
+    def test_empty_data_returns_review_message(self, df):
+        empty = df.iloc[0:0]
+        insights = build_sales_risk_insights(empty)
+        assert len(insights) == 1
+        assert insights[0]["priority"] == "Low"
+        assert "no sales records" in insights[0]["evidence"].lower()
+
+    def test_filtered_data_stays_grounded_in_period(self, df):
+        q1 = df[df["quarter"] == "Q1"]
+        insights = build_sales_risk_insights(q1)
+        assert len(insights) == 3
+        assert all("$" in insight["evidence"] or "%" in insight["evidence"]
+                   for insight in insights)
